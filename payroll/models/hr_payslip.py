@@ -339,7 +339,10 @@ class HrPayslip(models.Model):
         )
         leaves = {}
         calendar = contract.resource_calendar_id
-        tz = ZoneInfo(contract.employee_id._get_tz())
+        # Period semantics: the timezone comes from the contract version being
+        # computed, not from the employee's current version — a retroactive
+        # payslip must be evaluated in the timezone the contract was in effect.
+        tz = ZoneInfo(contract._get_tz())
         # ``resource.mixin.list_leaves`` was dropped in 20: intersect the resource's
         # attendance and leave intervals directly (same computation it did).
         # The batch methods require timezone-aware bounds; the old helper made naive
@@ -398,18 +401,24 @@ class HrPayslip(models.Model):
         of the payslip. This returns the FULL work days expected for the resource
         calendar selected for the employee (it don't substract leaves by default).
         """
-        work_data = contract.employee_id._get_work_days_data_batch(
-            day_from,
-            day_to,
-            calendar=contract.resource_calendar_id,
-            compute_leaves=False,
-        )
+        # Same period semantics as _compute_leave_days: the core batch helper
+        # resolves the timezone from the resource's current version, so build
+        # the intervals with the contract version's timezone directly.
+        tz = ZoneInfo(contract._get_tz())
+        resource = contract.employee_id.resource_id
+        calendar = contract.resource_calendar_id
+        intervals = calendar._attendance_intervals_batch(
+            day_from.replace(tzinfo=UTC),
+            day_to.replace(tzinfo=UTC),
+            {tz: resource},
+        )[resource.id]
+        work_data = calendar._get_attendance_intervals_days_data(intervals)
         return {
             "name": self.env._("Normal Working Days paid at 100%"),
             "sequence": 1,
             "code": "WORK100",
-            "number_of_days": work_data[contract.employee_id.id]["days"],
-            "number_of_hours": work_data[contract.employee_id.id]["hours"],
+            "number_of_days": work_data["days"],
+            "number_of_hours": work_data["hours"],
             "contract_id": contract.id,
         }
 

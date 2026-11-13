@@ -149,3 +149,96 @@ class TestWorkedDays(TestPayslipBase):
             8.0,
             "The hours worked value is a POSITIVE number",
         )
+
+
+class TestRetroactiveTimezone(TestPayslipBase):
+    """A retroactive payslip must be computed with the contract version's
+    timezone, not the employee's current version."""
+
+    def _make_retro_calendar(self):
+        calendar = self.ResourceCalendar.create({"name": "Retro 8-20"})
+        calendar.attendance_ids.unlink()
+        for day in ["0", "1", "2", "3", "4", "5", "6"]:
+            self.CalendarAttendance.create(
+                {
+                    "calendar_id": calendar.id,
+                    "dayofweek": day,
+                    "day_period": "morning",
+                    "hour_from": 8,
+                    "hour_to": 20,
+                }
+            )
+        return calendar
+
+    def test_retroactive_leave_uses_contract_timezone(self):
+        from datetime import timedelta
+
+        from dateutil.relativedelta import FR, relativedelta
+
+        today = date.today()
+        prev_start = today.replace(day=1) - relativedelta(months=1)
+        prev_end = today.replace(day=1) - relativedelta(days=1)
+        retro_day = prev_start + relativedelta(weekday=FR(+1))
+        if retro_day > prev_end:
+            retro_day -= relativedelta(weeks=1)
+
+        calendar = self._make_retro_calendar()
+
+        # Contract version for the previous month, UTC timezone, retro calendar
+        self.richard_emp.version_id.write(
+            {
+                "contract_date_start": prev_start.strftime("%Y-%m-%d"),
+                "contract_date_end": prev_end.strftime("%Y-%m-%d"),
+                "tz": "UTC",
+                "resource_calendar_id": calendar.id,
+                "struct_id": self.developer_pay_structure.id,
+                "wage": 5000.0,
+            }
+        )
+        # Current version, effective from this month, different timezone
+        self.Contract.create(
+            {
+                "name": "Relocation",
+                "employee_id": self.richard_emp.id,
+                "date_version": today.replace(day=1).strftime("%Y-%m-%d"),
+                "contract_date_start": today.replace(day=1).strftime("%Y-%m-%d"),
+                "tz": "Asia/Kolkata",
+                "struct_id": self.developer_pay_structure.id,
+                "wage": 5000.0,
+            }
+        )
+
+        # Leave 19:00-23:00 UTC on the retro day: it overlaps the retro
+        # calendar's attendance (08:00-20:00 UTC) by one hour; interpreted in
+        # Asia/Kolkata (the current version's timezone) it falls outside every
+        # attendance slot.
+        self.env["resource.calendar.leaves"].create(
+            {
+                "name": "Retro leave",
+                "resource_id": self.richard_emp.resource_id.id,
+                "calendar_id": calendar.id,
+                "date_from": datetime.combine(retro_day, datetime.min.time())
+                + timedelta(hours=19),
+                "date_to": datetime.combine(retro_day, datetime.min.time())
+                + timedelta(hours=23),
+                "count_as": "absence",
+                "company_id": self.richard_emp.company_id.id,
+            }
+        )
+
+        res = self.Payslip.get_payslip_vals(prev_start, prev_end, self.richard_emp.id)
+        leave_lines = [
+            line
+            for line in res["value"]["worked_days_line_ids"]
+            if line["code"] == "GLOBAL"
+        ]
+        self.assertEqual(
+            len(leave_lines), 1, "The retroactive leave is in the worked days"
+        )
+        # leaves_positive defaults to False: the leave deducts, sign aside,
+        # the absolute hours prove the timezone choice
+        self.assertEqual(
+            leave_lines[0]["number_of_hours"],
+            -1.0,
+            "The leave hours are computed in the contract version's timezone",
+        )
