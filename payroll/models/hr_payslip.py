@@ -2,11 +2,11 @@
 
 import logging
 import math
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time
 
 import babel
 from dateutil.relativedelta import relativedelta
-from pytz import timezone
+from zoneinfo import ZoneInfo
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -162,14 +162,14 @@ class HrPayslip(models.Model):
         self.allow_cancel_payslips = (
             self.env["ir.config_parameter"]
             .sudo()
-            .get_param("payroll.allow_cancel_payslips")
+            .get_bool("payroll.allow_cancel_payslips")
         )
 
     def _compute_prevent_compute_on_confirm(self):
         self.prevent_compute_on_confirm = (
             self.env["ir.config_parameter"]
             .sudo()
-            .get_param("payroll.prevent_compute_on_confirm")
+            .get_bool("payroll.prevent_compute_on_confirm")
         )
 
     @api.depends("line_ids", "hide_child_lines", "hide_invisible_lines")
@@ -335,31 +335,41 @@ class HrPayslip(models.Model):
         of the payslip. One record per leave type.
         """
         leaves_positive = (
-            self.env["ir.config_parameter"].sudo().get_param("payroll.leaves_positive")
+            self.env["ir.config_parameter"].sudo().get_bool("payroll.leaves_positive")
         )
         leaves = {}
         calendar = contract.resource_calendar_id
-        tz = timezone(calendar.tz or contract.employee_id.tz or "UTC")
-        day_leave_intervals = contract.employee_id.list_leaves(
-            day_from, day_to, calendar=contract.resource_calendar_id
-        )
+        tz = ZoneInfo(contract.employee_id._get_tz())
+        # ``resource.mixin.list_leaves`` was dropped in 20: intersect the resource's
+        # attendance and leave intervals directly (same computation it did).
+        # The batch methods require timezone-aware bounds; the old helper made naive
+        # datetimes explicit in UTC, keep that.
+        resource = contract.employee_id.resource_id
+        resources_per_tz = {tz: resource}
+        aware_from = day_from.replace(tzinfo=UTC)
+        aware_to = day_to.replace(tzinfo=UTC)
+        attendances = calendar._attendance_intervals_batch(
+            aware_from, aware_to, resources_per_tz
+        )[resource.id]
+        leave_intervals = calendar._leave_intervals_batch(
+            aware_from, aware_to, resources_per_tz
+        )[resource.id]
+        day_leave_intervals = [
+            (start.date(), (stop - start).total_seconds() / 3600, leave)
+            for start, stop, leave in (leave_intervals & attendances)
+        ]
         for day, hours, leave in day_leave_intervals:
             holiday = leave[:1].holiday_id
+            # 20 dropped ``hr.leave.type``: the leave's own work entry type is the
+            # grouping key (it carried name/sequence/code through holiday_status_id before).
+            work_entry_type = holiday.work_entry_type_id
             current_leave_struct = leaves.setdefault(
-                holiday.holiday_status_id,
+                work_entry_type,
                 {
-                    "name": holiday.holiday_status_id.name
+                    "name": work_entry_type.name
                     or self.env._("Global Leaves"),
-                    "sequence": getattr(
-                        getattr(holiday.holiday_status_id, "work_entry_type_id", None),
-                        "sequence",
-                        5,
-                    ),
-                    "code": getattr(
-                        getattr(holiday.holiday_status_id, "work_entry_type_id", None),
-                        "code",
-                        "GLOBAL",
-                    ),
+                    "sequence": getattr(work_entry_type, "sequence", 5),
+                    "code": getattr(work_entry_type, "code", "GLOBAL") or "GLOBAL",
                     "number_of_days": 0.0,
                     "number_of_hours": 0.0,
                     "contract_id": contract.id,
@@ -370,8 +380,8 @@ class HrPayslip(models.Model):
             else:
                 current_leave_struct["number_of_hours"] -= hours
             work_hours = calendar.get_work_hours_count(
-                tz.localize(datetime.combine(day, time.min)),
-                tz.localize(datetime.combine(day, time.max)),
+                datetime.combine(day, time.min, tzinfo=tz),
+                datetime.combine(day, time.max, tzinfo=tz),
                 compute_leaves=False,
             )
             if work_hours:
