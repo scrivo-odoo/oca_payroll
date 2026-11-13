@@ -17,26 +17,31 @@ class TestPayrollAccount(common.TransactionCase):
 
         self.payslip_action_id = self.ref("payroll.hr_payslip_menu")
 
+        # The 18.0 test leaned on demo records (res_partner_12, res_bank_1,
+        # res_partner_address_27, hr.dep_rd); the stand runs without demo data,
+        # so create the same fixtures here.
+        self.res_partner = self.env["res.partner"].create({"name": "John Bank Partner"})
+        # 20 dropped res.bank and renamed acc_number to account_number
         self.res_partner_bank = self.env["res.partner.bank"].create(
             {
-                "acc_number": "001-9876543-21",
-                "partner_id": self.ref("base.res_partner_12"),
-                "acc_type": "bank",
-                "bank_id": self.ref("base.res_bank_1"),
+                "account_number": "001-9876543-21",
+                "partner_id": self.res_partner.id,
             }
         )
+        self.department = self.env["hr.department"].create(
+            {"name": "Research & Development"}
+        )
+        self.john_address = self.env["res.partner"].create({"name": "John Address"})
 
         self.hr_employee_john = self.env["hr.employee"].create(
             {
-                "address_id": self.ref("base.res_partner_address_27"),
+                "address_id": self.john_address.id,
                 "birthday": "1984-05-01",
                 "children": 0.0,
                 "country_id": self.ref("base.in"),
-                "department_id": self.ref("hr.dep_rd"),
-                "gender": "male",
-                "marital": "single",
+                "department_id": self.department.id,
                 "name": "John",
-                "bank_account_id": self.res_partner_bank.bank_id.id,
+                "bank_account_ids": [(6, 0, [self.res_partner_bank.id])],
             }
         )
 
@@ -67,34 +72,46 @@ class TestPayrollAccount(common.TransactionCase):
             }
         )
 
-        rules = [
-            self.ref("payroll.hr_salary_rule_houserentallowance1"),
-            self.ref("payroll.hr_salary_rule_providentfund1"),
-        ]
+        # The demo salary rules (hr_salary_rule_houserentallowance1, structure_base)
+        # are not loaded on a stand without demo data: build the minimal rule set here.
+        self.categ_basic = self.env["hr.salary.rule.category"].create(
+            {"name": "Basic", "code": "BASIC"}
+        )
+        self.rule_basic = self.env["hr.salary.rule"].create(
+            {
+                "name": "Basic",
+                "code": "BASIC",
+                "category_id": self.categ_basic.id,
+                "sequence": 1,
+                "amount_select": "code",
+                "amount_python_compute": "result = contract.wage",
+            }
+        )
         self.hr_structure_softwaredeveloper = self.env["hr.payroll.structure"].create(
             {
                 "name": "Salary Structure for Software Developer",
                 "code": "SD",
-                "parent_id": self.ref("payroll.structure_base"),
-                "rule_ids": [(6, 0, rules)],
+                "rule_ids": [(6, 0, self.rule_basic.ids)],
             }
         )
 
-        self.hr_contract_john = self.env["hr.contract"].create(
+        # 20 has no hr.contract: the contract lives on the employee's version
+        self.hr_contract_john = self.hr_employee_john.version_id
+        self.hr_contract_john.write(
             {
-                "date_end": fields.Date.to_string(datetime.now() + timedelta(days=365)),
-                "date_start": fields.Date.today(),
                 "name": "Contract for John",
+                "contract_date_start": fields.Date.today(),
+                "contract_date_end": fields.Date.to_string(
+                    datetime.now() + timedelta(days=365)
+                ),
                 "wage": 5000.0,
-                "employee_id": self.hr_employee_john.id,
                 "struct_id": self.hr_structure_softwaredeveloper.id,
                 "journal_id": self.account_journal.id,
             }
         )
 
     def _update_account_in_rule(self, debit, credit):
-        rule_HRA = self.env.ref("payroll.hr_salary_rule_houserentallowance1")
-        rule_HRA.write({"account_debit": debit, "account_credit": credit})
+        self.rule_basic.write({"account_debit": debit, "account_credit": credit})
 
     def _prepare_payslip(self, employee):
         date_from = datetime.now()
@@ -196,7 +213,7 @@ class TestPayrollAccount(common.TransactionCase):
         )
 
         # Create rule and payslip line
-        rule = self.env.ref("payroll.hr_salary_rule_houserentallowance1")
+        rule = self.rule_basic
         rule.register_id = register
         payslip = self._prepare_payslip(self.hr_employee_john)
         line = self.env["hr.payslip.line"].create(
