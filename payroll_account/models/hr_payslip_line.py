@@ -15,7 +15,7 @@ class HrPayslipLine(models.Model):
         relationships:
         - asset_receivable: Employee loans, salary advances, overpayments to recover
                            → Partner source: Employee (work_contact_id or
-                             bank_account_id.partner_id)
+                             bank_account_ids[:1].partner_id)
         - liability_payable: Third-party payables (tax authorities, insurance
                             companies) typically managed through contribution
                             registers
@@ -24,7 +24,7 @@ class HrPayslipLine(models.Model):
         - liability_current: Current liabilities to pay employee salaries, net pay
                             accruals
                            → Partner source: Employee (work_contact_id or
-                             bank_account_id.partner_id)
+                             bank_account_ids[:1].partner_id)
 
         For other account types (expense, income, asset_current, etc.), no partner
         is assigned as these represent internal accounting entries without external
@@ -39,14 +39,13 @@ class HrPayslipLine(models.Model):
 
         if acc_type in ("asset_receivable", "liability_current"):
             # Employee-related accounts - always employee
+            # 20 replaced the employee's single bank_account_id with bank_account_ids
+            employee = self.slip_id.employee_id
+            first_bank = employee.bank_account_ids[:1]
             return (
-                self.slip_id.employee_id.work_contact_id.id
-                if self.slip_id.employee_id.work_contact_id
-                else (
-                    self.slip_id.employee_id.bank_account_id.partner_id.id
-                    if self.slip_id.employee_id.bank_account_id
-                    else False
-                )
+                employee.work_contact_id.id
+                if employee.work_contact_id
+                else (first_bank.partner_id.id if first_bank else False)
             )
 
         elif acc_type == "liability_payable":
