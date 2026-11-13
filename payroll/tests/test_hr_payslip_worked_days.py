@@ -13,12 +13,16 @@ class TestWorkedDays(TestPayslipBase):
         super().setUp()
 
         self.LeaveRequest = self.env["hr.leave"]
-        self.LeaveType = self.env["hr.leave.type"]
+        self.LeaveType = self.env["hr.work.entry.type"]
 
         # create holiday type
         self.holiday_type = self.LeaveType.create(
             {
                 "name": "TestLeaveType",
+                "code": "GLOBAL",
+                # count_as defaults to working_time; only absence leaves are
+                # deducted from worked days (the batch leave domain filters on it)
+                "count_as": "absence",
                 "allocation_validation_type": "no_validation",
                 "leave_validation_type": "no_validation",
             }
@@ -27,16 +31,17 @@ class TestWorkedDays(TestPayslipBase):
         self.full_calendar = self.ResourceCalendar.create(
             {
                 "name": "56 Hrs a week",
-                "tz": "UTC",
             }
         )
+        # 20 copies the company default attendances into a new fixed calendar;
+        # the test builds its own 7-day schedule from scratch.
+        self.full_calendar.attendance_ids.unlink()
         # Create a full 7-day week sor our tests don't fail on Sat. and Sun.
         for day in ["0", "1", "2", "3", "4", "5", "6"]:
             self.CalendarAttendance.create(
                 {
                     "calendar_id": self.full_calendar.id,
                     "dayofweek": day,
-                    "name": "Morning",
                     "day_period": "morning",
                     "hour_from": 8,
                     "hour_to": 12,
@@ -46,7 +51,6 @@ class TestWorkedDays(TestPayslipBase):
                 {
                     "calendar_id": self.full_calendar.id,
                     "dayofweek": day,
-                    "name": "Afternoon",
                     "day_period": "afternoon",
                     "hour_from": 13,
                     "hour_to": 17,
@@ -64,7 +68,7 @@ class TestWorkedDays(TestPayslipBase):
             {
                 "name": "Annual Time Off",
                 "employee_id": self.richard_emp.id,
-                "holiday_status_id": self.holiday_type.id,
+                "work_entry_type_id": self.holiday_type.id,
                 "number_of_days": 20,
                 "state": "confirm",
                 "date_from": time.strftime("%Y-01-01"),
@@ -77,7 +81,7 @@ class TestWorkedDays(TestPayslipBase):
             {
                 "name": "Hol11",
                 "employee_id": self.richard_emp.id,
-                "holiday_status_id": self.holiday_type.id,
+                "work_entry_type_id": self.holiday_type.id,
                 "date_from": datetime.combine(date.today(), datetime.min.time()),
                 "date_to": datetime.combine(date.today(), datetime.max.time()),
                 "number_of_days": 1,
@@ -88,7 +92,7 @@ class TestWorkedDays(TestPayslipBase):
         self._common_contract_leave_setup()
 
         # Set system parameter
-        self.env["ir.config_parameter"].sudo().set_param(
+        self.env["ir.config_parameter"].sudo().set_bool(
             "payroll.leaves_positive", False
         )
 
@@ -120,7 +124,7 @@ class TestWorkedDays(TestPayslipBase):
         self._common_contract_leave_setup()
 
         # Set system parameter
-        self.env["ir.config_parameter"].sudo().set_param(
+        self.env["ir.config_parameter"].sudo().set_bool(
             "payroll.leaves_positive", True
         )
 

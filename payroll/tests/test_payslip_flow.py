@@ -4,7 +4,6 @@ from datetime import timedelta
 
 from odoo.fields import Date
 from odoo.tests import Form
-from odoo.tools import test_reports
 
 from .common import TestPayslipBase
 
@@ -139,7 +138,7 @@ class TestPayslipFlow(TestPayslipBase):
         payslip_employee.with_context(active_id=payslip_run.id).compute_sheet()
 
         # I open Contribution Register and from there I print the Payslip Lines report.
-        self.env["payslip.lines.contribution.register"].create(
+        contrib_wizard = self.env["payslip.lines.contribution.register"].create(
             {"date_from": "2011-09-30", "date_to": "2011-09-01"}
         )
 
@@ -158,19 +157,18 @@ class TestPayslipFlow(TestPayslipBase):
         )
 
         # I print the contribution register report
-        context = {
-            "model": "hr.contribution.register",
-            "active_ids": [self.register_hra.id],
-            "discard_logo_check": True,
-        }
-        test_reports.try_report_action(
-            self.env.cr,
-            self.env.uid,
-            "action_payslip_lines_contribution_register",
-            context=context,
-            our_module="payroll",
+        report = self.env.ref("payroll.action_contribution_register")
+        data, data_format = report.with_context(
+            active_ids=[self.register_hra.id]
+        )._render_qweb_pdf(
+            report,
+            res_ids=[self.register_hra.id],
+            data={
+                "ids": [self.register_hra.id],
+                "model": "hr.contribution.register",
+                "form": contrib_wizard.read()[0],
+            },
         )
-        # FIXME: try_report_action is not used anymore in the Odoo codebase
 
     def test_contract_qty(self):
         # I set the test rule to detect contract count
