@@ -236,3 +236,46 @@ class TestPayrollAccount(common.TransactionCase):
         # Test other account types -> no partner
         self.account_credit.account_type = "expense"
         self.assertFalse(line._get_partner_id(True))
+
+    def test_partner_fallback_uses_primary_bank(self):
+        """Without a work contact the partner comes from the primary salary
+        account, not from an arbitrary first account."""
+        employee = self.hr_employee_john
+        employee.work_contact_id = False
+
+        secondary_partner = self.env["res.partner"].create(
+            {"name": "Secondary Bank Partner"}
+        )
+        primary_partner = self.env["res.partner"].create({"name": "Primary Bank Partner"})
+        bank_secondary = self.env["res.partner.bank"].create(
+            {"account_number": "GB00SECONDARY01", "partner_id": secondary_partner.id}
+        )
+        bank_primary = self.env["res.partner.bank"].create(
+            {"account_number": "GB00PRIMARY001", "partner_id": primary_partner.id}
+        )
+        employee.bank_account_ids = [(6, 0, [bank_secondary.id, bank_primary.id])]
+        employee.salary_distribution = {
+            str(bank_primary.id): {
+                "sequence": 0,
+                "amount": 100.0,
+                "amount_is_percentage": True,
+            },
+            str(bank_secondary.id): {
+                "sequence": 1,
+                "amount": 0.0,
+                "amount_is_percentage": True,
+            },
+        }
+        employee.invalidate_recordset()
+
+        self.account_credit.account_type = "liability_current"
+        self.rule_basic.account_credit = self.account_credit
+        payslip = self._prepare_payslip(employee)
+        line = self.env["hr.payslip.line"].create(
+            {
+                "slip_id": payslip.id,
+                "salary_rule_id": self.rule_basic.id,
+                "name": "Primary bank test",
+            }
+        )
+        self.assertEqual(line._get_partner_id(True), primary_partner.id)

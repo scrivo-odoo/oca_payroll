@@ -39,13 +39,15 @@ class HrPayslipLine(models.Model):
 
         if acc_type in ("asset_receivable", "liability_current"):
             # Employee-related accounts - always employee
-            # 20 replaced the employee's single bank_account_id with bank_account_ids
+            # 20 replaced the employee's single bank_account_id with bank_account_ids;
+            # the salary account is the primary one (lowest salary_distribution
+            # sequence), not an arbitrary first record.
             employee = self.slip_id.employee_id
-            first_bank = employee.bank_account_ids[:1]
+            primary_bank = employee.primary_bank_account_id
             return (
                 employee.work_contact_id.id
                 if employee.work_contact_id
-                else (first_bank.partner_id.id if first_bank else False)
+                else (primary_bank.partner_id.id if primary_bank else False)
             )
 
         elif acc_type == "liability_payable":
