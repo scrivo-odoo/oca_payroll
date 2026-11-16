@@ -55,6 +55,24 @@
             </xpath>
         </field>
     </record>
+    <!-- Employee View: the salary journal is set where the contract is edited -->
+    <record id="hr_employee_view_form" model="ir.ui.view">
+        <field name="name">hr.employee.view.form.payroll.account</field>
+        <field name="model">hr.employee</field>
+        <field name="inherit_id" ref="payroll.hr_employee_view_form" />
+        <field name="arch" type="xml">
+            <xpath
+                expr="//page[@name='payroll_information']//group[@name='contract']//field[@name='struct_id']"
+                position="after"
+            >
+                <field name="journal_id" />
+                <field
+                    name="analytic_account_id"
+                    groups="analytic.group_analytic_accounting"
+                />
+            </xpath>
+        </field>
+    </record>
     <!-- Payslip Run View -->
     <record id="hr_payslip_run_view_search" model="ir.ui.view">
         <field name="name">hr.payslip.run.search.inherit</field>
