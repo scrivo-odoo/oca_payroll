@@ -264,6 +264,19 @@ class TestPayslipBase(TransactionCase):
             }
         )
 
+        # payroll_account makes the contract's journal required on the payslip form
+        if "journal_id" in self.Contract._fields:
+            Journal = self.env["account.journal"]
+            journal = Journal.search(
+                [("type", "=", "general"), ("company_id", "=", self.env.company.id)],
+                limit=1,
+            ) or Journal.create(
+                {"name": "Salary Journal - Test", "code": "TSAL", "type": "general"}
+            )
+            (self.richard_contract | self.sally.version_id).write(
+                {"journal_id": journal.id}
+            )
+
     def apply_contract_cron(self):
         # Open Richard and Sally contracts for current period
         today = Date.today().strftime("%Y-%m-%d")
