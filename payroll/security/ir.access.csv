@@ -19,3 +19,8 @@ hr_payroll_structure_rule_company,Payroll Structure: multi-company,hr.payroll.st
 hr_salary_rule_company,Salary Rule: multi-company,hr.salary.rule,,crud,"['|',('company_id','=',False),('company_id','in',company_ids)]"
 hr_salary_category_rule_company,Salary Rule Category: multi-company,hr.salary.rule.category,,crud,"['|',('company_id','=',False),('company_id','in',company_ids)]"
 hr_contribution_register_rule_company,Contribution Register: multi-company,hr.contribution.register,,crud,"['|',('company_id','=',False),('company_id','in',company_ids)]"
+hr_payslip_line_rule_company,Payslip Line: multi-company,hr.payslip.line,,crud,"['|',('slip_id.company_id','=',False),('slip_id.company_id','in',company_ids)]"
+hr_payslip_run_rule_company,Payslip Batch: multi-company,hr.payslip.run,,crud,"['|',('company_id','=',False),('company_id','in',company_ids)]"
+hr_payslip_input_rule_company,Payslip Input: multi-company,hr.payslip.input,,crud,"['|',('payslip_id.company_id','=',False),('payslip_id.company_id','in',company_ids)]"
+hr_payslip_worked_days_rule_company,Payslip Worked Days: multi-company,hr.payslip.worked_days,,crud,"['|',('payslip_id.company_id','=',False),('payslip_id.company_id','in',company_ids)]"
+hr_rule_input_rule_company,Salary Rule Input: multi-company,hr.rule.input,,crud,"['|',('input_id.company_id','=',False),('input_id.company_id','in',company_ids)]"
